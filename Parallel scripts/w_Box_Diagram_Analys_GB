@@ -1,0 +1,9 @@
+%Box diagram analysis Normal x Daltonic, Green X Blue
+% Copyright (c) Willian B. C; June 14, 2017.
+data = [-0.225 -0.225 -0.225	-0.15	0.075	0.075	0.075 0.075 0.375 0.375 0.375 0.45 0.45 0.525 0.6 0.6 0.6	-0.3 -0.3 -0.3 -0.225 -0.225 -0.225 -0.15 -0.15 -0.15 -0.075 0.975 0.975 0.975 0.975 0.975 1.05 1.05]
+    names= { 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Normais' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico' 'Daltônico'}
+
+boxplot(data,names)
+title('Diagrama de Caixa')
+xlabel('Respostas')
+ylabel('L= log [(L1/L2)]')
