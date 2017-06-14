@@ -1,8 +1,8 @@
-%Analysis diferences of normal distribution data from Mario X daltonic
-%Willian B. C; June 14, 2017.
+%Analysis diferences of normal distribution data from Subject X daltonic
+%Copyright (c) Willian B. C; June 14, 2017.
 
 
-%--------/////////-------- Mario DATA
+%--------/////////-------- Subject DATA
 x = -0.9:0.005:0.9;
 y1 = gaussmf(x,[0.04378083324 0.1647222222]);
 ym= [0, 0.9];
@@ -23,10 +23,10 @@ xm5= [0.01, 0.01];
 y6 = gaussmf(x,[0.4780914437 0.25]); % Very large standard deviation
 xm6= [0.25, 0.25]; 
 
-%---------///// ---------- Mario's Distribution data 
-figure('Name','Mario´s Distribution data')
+%---------///// ---------- Subject's Distribution data 
+figure('Name','Subject´s Distribution data')
 plot(x,y1,'y', xm1,ym, 'y--', x, y2, 'm', xm2, ym, 'm--', x, y3,'c', xm3, ym, 'c--')
-xlabel('Y= GR ; M=BR ;  C= BG - Line = Mario ; -- = mean')
+xlabel('Y= GR ; M=BR ;  C= BG - Line = Subject ; -- = mean')
 
 %---------///// ---------- Daltonic's Distribution data 
 figure('Name','Daltonic´s Distribution data')
@@ -36,6 +36,6 @@ xlabel('Y= GR ; M=BR ;  C= BG - Circle = Daltonic ; -- = mean')
 %---------///// ---------- All Distribution data without Daltonic's standard deviation
 figure('Name','All Distribution data without Daltonic´s standard deviation')
 plot(x,y1,'y', xm1,ym, 'y--', x, y2, 'm', xm2, ym, 'm--', x, y3,'c', xm3, ym, 'c--', xm4, ym, 'o--y', xm5, ym, 'o--m', xm6, ym, 'o--c' )
-xlabel('Y= GR ; M=BR ;  C= BG - Line = Mario ; Circle = Daltonic ; -- = mean')
+xlabel('Y= GR ; M=BR ;  C= BG - Line = Subject ; Circle = Daltonic ; -- = mean')
 
 
