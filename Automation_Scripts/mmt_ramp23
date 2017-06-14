@@ -1,0 +1,531 @@
+% mmt_ramp23
+% behaviorally find equiluminance sensitivity
+% based on:
+% 'Minimum motion technique for judging equluminance' by Anstis & Cavanagh 1983
+% (v9) now running faster with change of ramp after reversion
+% (v10) now with new 'static' debugging mode
+% (v14) new analysis (remove outliers)
+% (v15) B&W alowed (1 color element)
+% (v16) direction response allowed
+% (v22) choose starting direction
+%
+% this script calls the following custom functions:
+% m_ptb3_screen_cal
+% m_eye_distance
+% m_grid_rect
+% m_I2RGB
+% m_LUM2CANN
+% m_outliers
+%
+% mario fiorani, September 2016
+% last modified: May 15, 2017
+
+
+clear all
+scriptname='mmt_ramp23';
+
+static_time=0; % for static stimuli viewing
+debugging=0; % For ptb3 debugging mode (semi transparent Screen on top)
+lum2cannfig=1;
+
+key_down_time = 0.3; % to avoid multiple responses for the same strike
+cy_after_early_reversion = 4; % number of cycles before a reversion after response
+
+answ=menu(scriptname, 'RUN TEST', 'analyze recorded test');
+if ~answ, return, end
+if answ==1,
+    pr_load_new=menu(scriptname, 'Load Protocol', 'NEW Protocol');
+    if ~pr_load_new, return, end
+    if pr_load_new == 1, % Load Protocol
+        [prot_file, prot_dir]=uigetfile('.mat', 'GET PROTOCOL', 'MMT_PROTOCOL_*.*');
+        if ~prot_file, return, end
+        load(fullfile(prot_dir, prot_file));
+    else % Start a new Protocol
+        prot_defaults_labels=['fields', 'helper', 'values', 'value is number'];
+        prot_defaults={...
+            'PROTOCOL', ' name', 'MMT_PROTOCOL_new', 0;
+            'photocell', ' [position (0= no photocell, 1=ul, 2=ur, 3=ll, 4=lr), size (mm)]', '[0,0]', 1;
+            'resp_input', ' (keyboard or mouse)', 'mouse', 0;
+            'eye_distance', ' (to screen, in Cm)', '57.3', 1;
+            'screen_size_cm', ' ([horizontal, vertical], in centimeters)', '[52.5,29.5]', 1;
+            'ColorCal_file', ' (get it from: m_ColorCALIICDC)', 'm_ColorCAL2_EIZO2_20170518A.mat', 0;
+            'ColorCal_dir', ' (the directory for the above file)', 'C:\Users\Micro\Desktop\MMT\ColorCal Files\', 0;
+            'make_lum2cann_fig', ' (set to one to make a ''cannon x luminance'' figure)', '0', 1;
+            'frames_per_stroke', ' [2= 7.5Hz (cycles/second) (1=15Hz; 3=5Hz; 4=3.5Hz)]',  '2', 1;
+            'deg_per_cycle', ' (degrees per one cycle [two bars])', '1', 1;
+            'Luminance', ' (luminance level (cd/m2))', '12', 1;
+            'IndL',  ' (ramp tested index [log(L1/L2)] isoluminance levels [min, step, max])', '[-1.5, .075, 1.5]', 1;
+            'Color1', ' (variable color 1 normalized LUMINANCE, [1, 0, 0] for R)', '[1, 0, 0]', 1;
+            'Color2', ' (variable color 2 normalized LUMINANCE, [0, 1, 0] for G)', '[0, 1, 0]', 1;
+            'IndFix', ' (Fix stimulus Index, above and below ''Luminance'')', '1', 1;
+            'ConstantColor', ' (constant color (luminances for each cannon)[r, g, b])', '[0, 0, 0]', 1;
+            'cy_after_early_reversion', ' number of cycles in the same direction before reveresion', '4', 1;
+            'trials', ' (number of two ramps [forth and back] repetitions)', '10', 1;
+            'start_dir', ' (starting direction [1= <-; 2= -> and 0=random])', '0', 1;
+            };
+        for n=1:size(prot_defaults, 1),
+            opts{n}=[prot_defaults{n,1},prot_defaults{n,2}];
+            defans{n}=prot_defaults{n,3};
+        end
+        answ=inputdlg(opts, scriptname, 1, defans);
+        for n=1:size(prot_defaults, 1),
+            if prot_defaults{n,4}, answ{n}=str2num(answ{n}); end
+        end
+        PR=[prot_defaults(:,1)';answ'];
+        PR=struct(PR{1:end});
+    end
+    disp(PR)
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+    R.I= (PR.IndL(1):PR.IndL(2):PR.IndL(3))'; % I1= one ramp values (AS A COLUMN)
+    R.Ii(:,1)=1:length(R.I);
+    
+    R.Isz = size(R.I,1);
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % get calibation coeficients
+    CC.fname=PR.ColorCal_file; CC.fdir=PR.ColorCal_dir;
+    load([PR.ColorCal_dir PR.ColorCal_file], 'cann', 'Y')
+    CC.cann=cann; CC.Y=Y;
+    
+    if numel(PR.Color1)>1, % is color
+        CC.LumT = m_LUM2CANN(CC.cann, CC.Y(:,1:3), PR.make_lum2cann_fig);
+        isbw=0;
+        c1=PR.Color1; c2=PR.Color2;
+    else % is B&W
+        CC.LumT = m_LUM2CANN(CC.cann, CC.Y(:,4), PR.make_lum2cann_fig);
+        isbw=1;
+        c1=[1,1,1]; c2=[1,1,1];
+    end
+    
+    % get the variable luminance values (RGB)
+    S.RGB = m_I2RGB(R.I, PR.Luminance, [c1;c2], PR.ConstantColor);
+    if isbw, S.RGB=sum(S.RGB,2); end %S.RGB=S.RGB./2; end
+    
+    % get the variable cannons values (rgb)
+    for n=1:2,
+        S.rgb(:,:,n)=m_LUM2CANN(CC.LumT, S.RGB(:,:,n));
+    end
+    
+    % get the fix luminance values (S.RGB_f)
+    % can be one (b&w) or 3 elements (rgb)
+    CC.maxL=CC.LumT(256,:);
+    tmp=(c1+c2).*CC.maxL;
+    R.ColorFixL=tmp./sum(tmp);
+    S.RGB_f = m_I2RGB(PR.IndFix, PR.Luminance, [R.ColorFixL;R.ColorFixL], PR.ConstantColor);
+    S.start_dir=1;
+    
+    % apply starting direction
+    switch PR.start_dir
+        case 0, if rand(1)>.5, S.start_dir=2; tmp=S.RGB_f; S.RGB_f(:,:,1)=tmp(:,:,2);S.RGB_f(:,:,2)=tmp(:,:,1); end
+        case 2, S.start_dir=2; tmp=S.RGB_f; S.RGB_f(:,:,1)=tmp(:,:,2);S.RGB_f(:,:,2)=tmp(:,:,1);
+    end
+    
+    if isbw, S.RGB_f=sum(S.RGB_f,2); end %S.RGB_f=S.RGB_f./2; end
+    % get the fix cannons values (rgb)
+    for n=1:2,
+        S.rgb_f(:,:,n)=m_LUM2CANN(CC.LumT, S.RGB_f(:,:,n));
+    end
+    
+    % get the background color
+    S.RGB_bckgnd=R.ColorFixL.*PR.Luminance;
+    if isbw, S.RGB_bckgnd=sum(S.RGB_bckgnd,2); end
+    S.rgb_bckgnd=m_LUM2CANN(CC.LumT, S.RGB_bckgnd);
+    
+    % the stimulus color array
+    S.rgbS = cat(3, S.rgb, repmat(S.rgb_f,size(S.rgb,1),1));
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    tmp=get(0,'Screensize');
+    PR.pix_mm_hv=tmp(3:4)./ (PR.screen_size_cm.*10);
+    
+    S.mm_per_deg=m_eye_distance(PR.eye_distance);
+    S.pix_per_deg=S.mm_per_deg * PR.pix_mm_hv(1);
+    S.pix_per_cycle=S.pix_per_deg * PR.deg_per_cycle;
+    
+    S.t_freq=60./(PR.frames_per_stroke * 4); % cycle temporal frequency (cycles per second) one cycle = 4 frames
+    S.s_freq=1./PR.deg_per_cycle; % cycle spatial frequency (cycles per degree)
+    S.speed=S.t_freq*S.s_freq;
+    
+    R.ramp_t=(size(R.I,1)*(1/S.t_freq)); % one ramp duration in seconds
+    
+    
+    % check if cannons do not saturate and go
+    mycolors='rgb';
+    cann_fig=figure; hold on
+    for n=1:3,
+        plot(R.I, S.rgb(:,n,1), [mycolors(n) '*-'])
+        plot(R.I, S.rgb(:,n,2), [mycolors(n) '*-'])
+    end
+    xlabel('I [ ln(L1/L2) ]')
+    ylabel('cannon values')
+    title('CHECK FOR SATURATION')
+    if pr_load_new==2,
+        [fname, fpath]=uiputfile('*.mat', 'SAVE PROTOCOL', PR.PROTOCOL);
+        if fname,
+            PR.PROTOCOL=fname(1:end-4); % force protocol name as same as the filename
+            save([fpath fname],'PR', 'CC')
+        end
+    end
+    
+    % get subject data %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    s_fields={'name', 'cpf', 'age', 'color_vision', 'file'};
+    s_defaults={'Test', '', '', 'N', 'RAMP_DATA'};
+    s_is_num=[0, 1, 1, 0, 0];
+    answ=menu(scriptname, 'NEW subject', 'Get subject data from FILE');
+    if answ==2;
+        [tmp, tmp1]=uigetfile('*.mat', 'Get Subject data from data file');
+        if ~tmp, return, end
+        load([tmp1 tmp], 'Subj')
+        for n=1:numel(s_fields),
+            tmp=getfield(Subj, s_fields{n});
+            if ~ischar(tmp), tmp=num2str(tmp); end
+            s_defaults2{n}=tmp;
+        end
+    else s_defaults2=s_defaults;
+    end
+    answ=inputdlg(s_fields, scriptname, 1, s_defaults2);
+    if isempty(answ), answ=s_defaults'; end
+    for n=1:numel(s_defaults),
+        if s_is_num(n), answ{n}=str2num(answ{n}); end
+    end
+    Subj=[s_fields;answ'];
+    Subj=struct(Subj{1:end});
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+    % pre start question
+    answ = questdlg([num2str(PR.trials) '  pairs of ramps (forth and back) of ' num2str(R.ramp_t * 2,3)...
+        ' seconds. Total time = ' num2str((R.ramp_t * PR.trials * 2)/60,2) ' minutes'] , scriptname, 'PROCEED', 'Cancel', 'PROCEED');
+    if strcmp(answ, 'Cancel'), disp('Canceled'), return, end
+    close(cann_fig)
+    
+    disp(['RUNNING: ' scriptname])
+    % Make sure we're running on PTB-3:
+    AssertOpenGL;
+    % Choose secondary display by default on multi-display setups:
+    screenid = max(Screen('Screens'));
+    
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    if debugging,
+        PsychDebugWindowConfiguration();
+    end
+    
+    [win, windrect] = Screen('OpenWindow', screenid); % initialize Screen
+    win_sz=windrect(3:4); % window size (h,v)
+    HideCursor;
+    
+    Screen('Preference', 'VBLTimestampingMode', 4); %????????????
+    
+    ifi = Screen('GetFlipInterval', win); % get Inter Frame Interval
+    while ifi< 0.016, ifi = ifi*2; end % if higher, use <=60 Hz presentation
+    
+    % make the photocell rect if is the case
+    switch PR.photocell(1),
+        case 0, phrect=0;
+        case 1, phrect=[0, 0, PR.photocell(2)*PR.pix_mm_hv(1), PR.photocell(2)*PR.pix_mm_hv(2)];
+        case 2, phrect=[windrect(3)-PR.photocell(2)*PR.pix_mm_hv(1), 0, windrect(3), PR.photocell(2)*PR.pix_mm_hv(2)];
+        case 3, phrect=[0, windrect(4)- PR.photocell(2)*PR.pix_mm_hv(2),  PR.photocell(2)*PR.pix_mm_hv(1), windrect(4)];
+        case 4, phrect=[windrect(3)-PR.photocell(2)*PR.pix_mm_hv(1), windrect(4)-PR.photocell(2)*PR.pix_mm_hv(2), windrect(3), windrect(4)];
+    end
+    
+    % GET BAR STIMULI COORDINATE ARRAYS
+    sz = S.pix_per_cycle/2; % one bar width
+    pix_hv=[sz, 0];
+    offset=0;
+    
+    FR= m_grid_rect(windrect, pix_hv, offset);
+    Sa{1}= FR{1}; Sb{1}=FR{2};
+    offset=0.5;
+    FR= m_grid_rect(windrect, pix_hv, offset);
+    Sa{2}= FR{1}; Sb{2}=FR{2};
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    % check stimuli routine
+    if static_time,% static presentation (for debugging)
+        Ii=1;
+        while 1, % START MAIN LOOP
+            for n=[1,2,1,2;... % frame
+                    1,3,2,4;... % color a
+                    2,4,1,3;... % color b
+                    1,2,3,4], % stroke
+                for m=1:PR.frames_per_stroke,
+                    Screen('FillRect', win, S.rgbS(Ii,:,n(2)), Sa{n(1)}); % color a
+                    Screen('FillRect', win, S.rgbS(Ii,:,n(3)), Sb{n(1)}); % color b
+                    DrawFormattedText(win,['I(' num2str(Ii) '/' num2str(R.Isz) ')=' num2str(R.I(Ii))...
+                        ' stroke#' num2str(n(4)) ', rgb1=' num2str(S.rgbS(Ii,:,n(2))) ', rgb2=' num2str(S.rgbS(Ii,:,n(3)))], ...
+                        100, 100, 255, Inf, 0, 0, 2);
+                    Screen(win, 'Flip');
+                end
+                while 1,
+                    [keyIsDown, secs, keyCode] = KbCheck;
+                    if keyIsDown,
+                        while KbCheck; end % wait key release
+                        if find(keyCode) == KbName('esc'), sca, return, end % abort test
+                        if find(keyCode) == 32, break, end% SPACE BAR
+                        if find(keyCode) == 37, Ii=Ii-1; break, end% LEFT ARROW
+                        if find(keyCode) == 39, Ii=Ii+1; break, end% RIGHT ARROW
+                        if find(keyCode) == 38, Ii=Ii+5; break, end% UP ARROW
+                        if find(keyCode) == 40, Ii=Ii-5; break, end% down ARROW
+                    end
+                end
+                if Ii > R.Isz, Ii=1; end
+                if Ii < 1, Ii=R.Isz; end
+            end
+        end
+    end
+    %%%%%%%%%%%%%%%%%%%%%% END STATIC PRESENTATION
+    
+    % START STIMULI PRESENTATION
+    % set default 'Screen' text format
+    Screen('TextFont', win, 'Arial');
+    %Screen('TextStyle', win, 0);
+    Screen('TextSize', win, 20);
+    
+    % starting screen
+    Screen(win, 'FillRect', S.rgb_bckgnd);
+    if strcmp(PR.resp_input, 'k'),
+        DrawFormattedText(win, 'Você verá um padrão de barras em movimento.\n\nQuando voce perceber CLARAMENTE A DIREÇÃO OU A MUDANÇA DE DIREÇÃO do movimento\n\ndeve apertar a SETA APONTANDO PARA A DIREÇÃO\n\n\n\nAperte qualquer tecla para iniciar os testes', ...
+            50, 300, 255);
+        Screen(win, 'Flip');
+        while ~KbCheck, end % wait a keystroke
+        while KbCheck, end % wait the key to be released
+    else
+        DrawFormattedText(win, 'Você verá um padrão de barras em movimento.\n\nQuando voce perceber CLARAMENTE A DIREÇÃO OU A MUDANÇA DE DIREÇÃO do movimento\n\ndeve apertar O BOTÃO DO MOUSE INDICANDO A DIREÇÃO (direita ou esquerda)\n\n\n\nAperte qualquer botão para iniciar os testes', ...
+            50, 300, 255);
+        Screen(win, 'Flip');
+        while ~GetClicks, end % wait a mousestroke
+        %        while GetClicks, end % wait the key to be released
+    end
+    
+    break_all=0;
+    resp=[];
+    resp_labels=['ramp_n', 'ramp_dir', 'R.Ii', 'vbl', 'I'];
+    vbl=Screen(win, 'Flip');% initialize vbl (frame time presentation)
+    Rrev=[1 1 vbl]; Rrev_labels=['ramp_n', 'i', 'vbl']; % for ramp reversions record and photocell
+    if sum(phrect), onoff=1;end
+    resp_ct=0;
+    ramp_n=1;
+    Ii=1;
+    lo_reversion=1;
+    hi_reversion=R.Isz;
+    increm=1; %increment (1, -1)
+    got_first_resp=0;
+    while 1, % START MAIN LOOP
+        if ramp_n > PR.trials * 2, break, end
+        ramp_dir=ceil(rem(ramp_n,2)); % 0 or 1
+        
+        for n=[1,2,1,2;... % frame
+                1,3,2,4;... % color a
+                2,4,1,3], % color b
+            for m=1:PR.frames_per_stroke,
+                Screen('FillRect', win, S.rgbS(Ii,:,n(2)), Sa{n(1)}); % color a
+                Screen('FillRect', win, S.rgbS(Ii,:,n(3)), Sb{n(1)}); % color b
+                if sum(phrect), Screen('FillRect', win, onoff*255, phrect); end
+                vbl=Screen(win, 'Flip', vbl + ifi/2);
+            end
+            if strcmp(PR.resp_input(1),'k'), % its a KEYBOARD input
+                [keyIsDown, secs, keyCode] = KbCheck;
+                if keyIsDown,
+                    if find(keyCode) == KbName('esc'), break_all=1; break, end % abort test
+                    resp_ct=resp_ct+1;
+                    resp(resp_ct,:)=[ramp_n, ramp_dir, Ii, vbl, R.I(Ii), find(keyCode)-36];
+                    if ~(all(resp(:,1)==1) & numel(unique(resp(:,6)))==1),
+                        if increm > 0, hi_reversion = min(Ii + PR.cy_after_early_reversion, R.Isz);
+                        else lo_reversion = max(Ii - PR.cy_after_early_reversion, 1);
+                        end
+                    end
+                end
+            else % its a MOUSE input
+                [keyIsDown, secs, keyCode] = KbCheck; % abort test
+                if keyIsDown,
+                    if find(keyCode) == KbName('esc'), break_all=1; break, end
+                end
+                [x, y, buttons] = GetMouse(win);
+                if any(buttons),
+                    resp_ct=resp_ct+1;
+                    resp(resp_ct,:)=[ramp_n, ramp_dir, Ii, vbl, R.I(Ii), find(buttons)];
+                    if ~(all(resp(:,1)==1) & numel(unique(resp(:,6)))==1),
+                        if increm > 0, hi_reversion = min(Ii + PR.cy_after_early_reversion, R.Isz);
+                        else lo_reversion = max(Ii - PR.cy_after_early_reversion, 1);
+                        end
+                    end
+                end
+            end
+        end
+        Ii=Ii+increm;
+        
+        if Ii > hi_reversion,
+            increm=-1; Ii = hi_reversion; ramp_n=ramp_n+1; hi_reversion = R.Isz;
+            Rrev= [Rrev; ramp_n, Ii, vbl];
+            if sum(phrect), onoff=~onoff; end
+        end
+        if Ii < lo_reversion,
+            increm= 1; Ii = lo_reversion; ramp_n=ramp_n+1; lo_reversion= 1;
+            Rrev= [Rrev; ramp_n, Ii, vbl];
+            if sum(phrect), onoff=~onoff; end
+        end
+        if break_all, break, end
+    end
+    
+    Screen(win, 'FillRect', 0);
+    Screen(win, 'Flip');
+    WaitSecs(1); % wait one second before finish
+    
+    Screen('CloseAll')
+    ShowCursor;
+    
+    % remove vbl offset
+    Rrev(:,3)=Rrev(:,3)-Rrev(1,3);
+    if ~isempty(resp), resp(:,4)=resp(:,4)-resp(1,4); end
+    
+    % SAVE DATA
+    d=clock; d=d(1:3); d_s=['_' num2str(d(1))];
+    for n=2:3,
+        if d(n)<10, tmp=['0', num2str(d(n))]; else tmp=num2str(d(n)); end
+        d_s =[d_s tmp];
+            end 
+    [fname, fpath]=uiputfile('*.mat', scriptname,...
+        [scriptname '_DATA_' Subj.name '_' PR.PROTOCOL d_s]); % default file name
+    if fname,
+        cd(fpath)
+        save(fname, 'Subj', 'PR', 'R', 'S', 'resp', 'resp_labels', 'Rrev', 'Rrev_labels')
+    end
+    
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    
+else % read pre recorded file
+    [fname, fpath]=uigetfile('*.mat', scriptname, '');
+    if fname,
+        cd(fpath)
+        load(fname)
+    end
+end
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+    %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+%%%%%% START ANALYSIS
+if fname, fname2=['  File:' fname]; else fname2=[]; end
+if isempty(resp), disp([scriptname fname2 ' > NO RESPONSES FOUND!']), return, end
+
+%resp_labels=['ramp_n', 'ramp_dir', 'Ii', 'vbl', 'I', 'respdir'];
+ref_vbl=resp(1,4);
+ct=1;
+% reduce responses to the first strike
+for n=2:size(resp,1),
+    if resp(n,4) > ref_vbl + key_down_time,
+        ref_vbl=resp(n,4);
+        ct=[ct; n];
+    end
+end
+resp2=resp(ct,:);
+
+% get out first response data
+first_resp=resp2(1,:);
+resp2=resp2(2:end,:);
+
+% get parametric stats
+resp_dir_values=[1,3];
+for n=1:2,
+    ramp_dir_r{n}=resp2(:,2)==n-1;
+    ramp_resp_dir{n}=resp2(:,6)==resp_dir_values(n);
+    iso_mean1(n)=nanmean(resp2(ramp_dir_r{n},5));
+    iso_sd1(n)=nanstd(resp2(ramp_dir_r{n},5));
+    iso_n1(n)=nansum(ramp_dir_r{n});
+end
+
+% remove outliers
+r_out=zeros(numel(ramp_dir_r{1}),2);
+for n=1:2
+    isoresp{n}=resp2(ramp_dir_r{n},5);
+    out{n}=m_outliers(isoresp{n});
+    r_out(ramp_dir_r{n},n)=out{n};
+    resp3{n}=resp2(~r_out(:,n) & ramp_dir_r{n},5);
+    % get parametric stats without outliers
+    iso_mean2(n)=nanmean(resp3{n});
+    iso_sd2(n)=nanstd(resp3{n});
+    iso_n2(n)=sum(~out{n});
+end
+
+Iiso=nanmean([resp3{1}; resp3{2}]);
+Iiso_sd=nanstd([resp3{1}; resp3{2}]);
+Iiso_n=numel([resp3{1}; resp3{2}]);
+
+RGBva=sum(S.RGB(:,:,1),2);
+RGBvb=sum(S.RGB(:,:,2),2);
+RGBfa=repmat(sum(S.RGB_f(:,:,1),2), R.Isz, 1);
+RGBfb=repmat(sum(S.RGB_f(:,:,2),2), R.Isz, 1);
+
+
+% MAKE A FIGURE
+figure
+subplot(3,1,1), axis ([R.I(1) R.I(end), 0, PR.trials*2+1]), hold on
+rampdircolor={'r','b'};
+respdirsymbols=['<', 'o', '>'];
+plot(resp2(:,5), resp2(:,1), 'k-')
+plot(R.I(Rrev(:,2)), Rrev(:,1), 'k:')
+for n=1:2,
+    plot(resp2(ramp_dir_r{n}&ramp_resp_dir{1},5), resp2(ramp_dir_r{n}&ramp_resp_dir{1},1), [rampdircolor{n} respdirsymbols(1)])
+    plot(resp2(ramp_dir_r{n}&ramp_resp_dir{2},5), resp2(ramp_dir_r{n}&ramp_resp_dir{2},1), [rampdircolor{n} respdirsymbols(3)])
+    
+    plot(first_resp(5), 0, ['k', respdirsymbols(first_resp(6))])
+    %plot(resp2(ramp_dir_r{n},5), resp2(ramp_dir_r{n},1), rampdircolor{n})
+    plot(resp2(ramp_dir_r{n} & r_out(:,n),5), resp2(ramp_dir_r{n} & r_out(:,n),1), 'k*')
+    plot(repmat(iso_mean1(n),2,1),[1;PR.trials*2], rampdircolor{n}(1))
+    plot(repmat(iso_mean2(n),2,1),[1;PR.trials*2], [rampdircolor{n}(1) '--'])
+    plot(median(resp2(ramp_dir_r{n},5)), 0, [rampdircolor{n}(1) '^'])
+end
+plot([Iiso, Iiso], [1, PR.trials*2], 'k')
+plot([Iiso - Iiso_sd, Iiso - Iiso_sd], [1, PR.trials*2], 'k:')
+plot([Iiso + Iiso_sd, Iiso + Iiso_sd], [1, PR.trials*2], 'k:')
+title([Subj.name ', protocol-> ' PR.PROTOCOL '        Iiso= ' num2str(Iiso,2) ', SD= ' num2str(Iiso_sd,2) ', N= ' num2str(Iiso_n)])
+xlabel('I [log(L1/L2)]')
+ylabel('trial number')
+
+subplot(3,1,2), hold on
+% plot(R.I, RGBfa, 'Color', ceil(double(S.rgb_f(1,:,1))/255), 'LineWidth', 3)
+% plot(R.I, RGBfb, 'Color', ceil(double(S.rgb_f(1,:,2))/255), 'LineWidth', 3)
+% plot(R.I, RGBva, 'Color', ceil(double(S.rgb(1,:,1))/255), 'LineWidth', 3)
+% plot(R.I, RGBvb, 'Color', ceil(double(S.rgb(1,:,2))/255), 'LineWidth', 3)
+plot(R.I, RGBfa, 'LineStyle', '--', 'Color', double(S.rgb_f(1,:,1))/255, 'LineWidth', 3)
+%plot(R.I, RGBfa, 'Color', double(S.rgb_f(1,:,1))/255, 'LineWidth', 3)
+plot(R.I, RGBfb, 'LineStyle', '--', 'Color', double(S.rgb_f(1,:,2))/255, 'LineWidth', 3)
+plot(R.I, RGBva, 'Color', double(S.rgb(1,:,1))/255, 'LineWidth', 3)
+plot(R.I, RGBvb, 'Color', double(S.rgb(1,:,2))/255, 'LineWidth', 3)
+% plot(R.I, RGBfa, 'y', 'LineWidth', 3)
+% plot(R.I, RGBfb, 'y', 'LineWidth', 3)
+% plot(R.I, RGBva, 'r', 'LineWidth', 3)
+% plot(R.I, RGBvb, 'g', 'LineWidth', 3)
+axis tight
+title(['LUMINANCES     FIX1= [' num2str(S.RGB_f(:,:,1),3) '],  FIX2= ['  num2str(S.RGB_f(:,:,2),3) ']'])
+xlabel('I [log(L1/L2)]')
+ylabel('L (Cd/m2)')
+
+subplot(3,1,3), hold on
+mymarker='v^';
+for m=1:2,
+    for n=1:3,
+        plot(R.I, S.rgb(:,n,m), 'Color', ceil(double(S.rgb(1,:,m))/255), 'LineWidth', 3)
+        for nn=1:R.Isz,
+            plot(R.I(nn), S.rgb(nn,n,m), 'Marker',mymarker(m), 'MarkerSize', 10,...
+                'MarkerEdgeColor', (double(S.rgb(n,:,m))/255).^.5,...
+                'MarkerFaceColor', (double(S.rgb(n,:,m))/255).^.5)
+        end
+    end
+end
+axis tight
+title(['CANNONS      FIX1= [' num2str(S.rgb_f(:,:,1)) '],  FIX2= ['  num2str(S.rgb_f(:,:,2)) ']'])
+xlabel('I [log(L1/L2)]')
+ylabel('RGB values')
+
+
+% catch
+%     sca
+% end
