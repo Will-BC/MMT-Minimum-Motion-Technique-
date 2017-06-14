@@ -1,0 +1,12 @@
+% m_eye_distance
+
+function [mm_per_deg, eye_distance]=m_eye_distance(eye_distance)
+%[mm_per_deg, eye_distance]=m_eye_distance2mm_per_deg(eye_distance)
+% eye_distance in CENTIMETERS
+% mario fiorani, September 2015
+
+if ~nargin,
+    answ=inputdlg({'Enter the EYE - SCREEN distance (in CENTIMETERS)'}, '', 1, {'57.3'});
+    eye_distance=str2double(answ{1});
+end
+mm_per_deg=tan(pi/180)*eye_distance*10;
