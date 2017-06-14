@@ -1,0 +1,70 @@
+function FR = m_grid_rect(windrect, pix_hv, offset)
+% FR = m_grid_rect(windrect, pix_hv, [offset])
+% Makes two color grid stimuli (checkerboard or stipes) for use with ptb3
+%          FillRect function.
+% INPUTS:
+% windrect - Screen coordinates (ptb3 format [left, upper, right, lower].
+% pix_hv - Number of pixels for each element side [horizontal, vertical],
+%          Set it as zero to get stripes along that dimension (h or v).
+%          If both are set to zero, it gives two full field stimuli.
+% [offset] - phase offset [optional], ratio of the element size (pix_hv).
+%          The default is changing color centered on the windrect.
+%          Exaple: offset=0.5; % moves down and right the elements half of
+%          its size.
+% OUTPUT:
+% FR - the stimuli coordinates, a two element cell array, in ptb3 FillRect
+%          format [left1; upper1; right1; lower1, left2; upper2;...].
+%          FR{1} corresponds to the color 1 elements coordinates and FR{2}
+%          to the color 2 coordinates.
+% Example:
+%
+% %test_m_grid_rect (WHEN RUNNING, PRESS ANY KEY TO FINISH)
+% clear 
+% pix_hv=[180,180]; % VARIABLE TO CHANGE
+% offset=0.1; % VARIABLE TO CHANGE
+% % Make sure we're running on PTB-3:
+% AssertOpenGL;
+% % choose secondary display by default on multi-display setups
+% screenid=max(Screen('Screens'));
+% [win, windrect] = Screen('OpenWindow', screenid); % initialize Screen
+% FR= m_grid_rect(windrect, pix_hv, offset);
+% Screen(win, 'FillRect', [255,0,0], FR{1}); % red
+% Screen(win, 'FillRect', [0,255,0] ,FR{2}); % green 
+% Screen(win, 'Flip');
+% while 1, key = KbCheck; % WAIT ANY KEYBOARD INPUT TO FINISH
+%     if key, Screen('CloseAll'); break, end, end
+%
+% mario fiorani, 2010, reviewed: January 2017.
+
+pxhv=pix_hv; pxhv(pxhv==0)=10;
+if any(pxhv<2), error('less than 2 pixels element(s)'), end
+if nargin==2, offset=0; end
+for hv=1:2, % grid number (h , v)
+    px=pix_hv(hv); % pixels in that grid
+    of=px*offset; % offset in pixels
+    s=[windrect(hv), windrect(hv+2)]; % grid size (pixels)
+    if px, % it's a grid
+        hg=0:px:s(2)-s(1); % half extended grid starting on zero
+        g=unique([-hg, hg]) + (s(2)-s(1))/2; % extended grid zero centered
+        g= round(g + of +s(1)); % add offset + starting point
+        g=g(g>s(1) & g<s(2)); % cropp to window size
+        ghv{hv}=unique([g,s]); % include grid ends if not present
+    else % are stripes
+        ghv{hv}=s; % uses full dimension
+    end
+end 
+% get center element color2 index (even [0] or odd [1])
+color2_i=ceil(rem(ceil((numel(ghv{1})+1)/2)+ceil((numel(ghv{2})+1)/2),2));
+% makes the FillRect coordinaltes array by color
+FR{1}=[];FR{2}=[];
+for v=1:numel(ghv{2})-1,
+    for h=1:numel(ghv{1})-1,
+        t=[ghv{1}(h); ghv{2}(v); ghv{1}(h+1); ghv{2}(v+1)];
+        if ceil(rem(v+h,2)) == color2_i,
+             FR{2}=[FR{2}, t];
+        else FR{1}=[FR{1}, t];
+        end
+    end
+end
+if isempty(FR{1}), FR{1}=FR{2}; end % for full field stimuli
+
