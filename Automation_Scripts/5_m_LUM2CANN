@@ -1,0 +1,111 @@
+function output = m_LUM2CANN(c, Y, fig)
+%output = m_LUM2CANN(c, Y, [fig])
+% Converts luminance to cannon values
+% NEEDS a 'm_ColorCALIICDC' output luximetric file.
+% IT'S A TWO WAY FUNCTION:
+% IF 'c' are cannon values (0 to 255), organized as a column and evenly
+%      spaced (ex: [0:15:255]'), and 'Y' has the luminance values for the
+%      cannons (3 columns for rgb or one column for gray scale (k), same
+%      number of lines as 'c'),
+%   The 'output' returns a interpolated luminance table (LumT) with 256
+%      lines and the same number of columns as 'Y' (3 for rgb, 1 for k).
+% IF 'c' 1s the Luminance Table (LumT), 'Y' has the desired luminances
+%   to be converted into cannon values, organized in column(s) (3 for rgb,
+%   1 for k).
+%   Now, 'output' returns the cannon values for the luminance values in 'Y'
+%    (organized in 3 columns), the same number of lines as 'Y'. Output
+%    cannon values saturate for out of range 'Y' luminance values.
+%
+% USAGE:
+%     LumT = m_LUM2CANN(cannon_values, fotometric_measurements, 1);
+% NOW YOU CAN RECALL THE FUNCTION TO CONVERT LUMINANCE TO CANNONS
+%     new_cannon_values = m_LUM2CANN(LumT, desired_luminances);
+%
+% 'fig' [optional, default = 0], if fig == 1, and 'c' are the cannon values,
+%       it makes a figure showing the relationship between the cannons
+%       and the luminance values.
+%
+% If no argument is passed, it prompts for the color calibration file. .
+%
+% mario fiorani, May 6th, 2017
+
+
+scriptname= 'm_LUM2CANN';
+if nargin==2, fig=0; end
+cfile=0;
+if ~nargout, fig=1;
+    [cfile, cpath]= uigetfile('*.mat', 'Get m_ColorCALIICDC output file');
+    if ~cfile, return, end
+    load ([cpath cfile], 'cann', 'Y')
+    Y=Y(:,1:3); c=cann; clear cann
+end
+
+if size(c,2) == 1 & size(c,1)<256, % c are the cannon values
+    if size(Y,2)==1, labels={'k'};  output=nan(256,1);
+    else labels={'r', 'g', 'b'}; output=nan(256,3);
+    end
+    dd=diff(c);
+    dd=unique(dd);
+    if numel(dd)>1, error([scriptname ' error cannon values should be equally spaced']), end
+    tmp=round(interp(c,dd));
+    c2=tmp(1:end-(dd-1));
+    
+    if fig, figure, end
+    for n=1:size(Y,2),
+        y=Y(:,n);
+        tmp=interp(y,dd);
+        output(c2+1,n)=tmp(1:end-(dd-1));
+        
+        if fig, subplot(2,2,1), hold on, plot(c, y, [labels{n} 'd-']),
+            subplot(2,2,2), hold on, plot(log(c), log(y), [labels{n} 'd-'])
+            leg{n}= [labels{n} ' Lum data'];
+        end
+    end
+    
+    if fig,
+        for n=1:size(output,2),
+            cc=output(:,n);
+            leg{numel(leg)+1}= [labels{n} '  LumT']; % builting the legend
+            
+            subplot(2,2,1), hold on, plot(1:256, cc, [labels{n} 'x'])
+            xlabel('Cannon values')
+            ylabel('Luminance (cd/m2)')
+            subplot(2,2,2), hold on, plot(log(1:256), log(cc), [labels{n} 'x'])
+            xlabel('Log Cannon values')
+            ylabel('Log Luminance (cd/m2)')
+            if cfile, title(['file: ' cfile]), end
+        end
+    end
+    if fig,
+        subplot(2,2,1), legend(leg, 'Location', 'NorthWest'), title('m__lum2cann')
+        subplot(2,2,3), hold on
+        resol=diff(output);
+        for n=1:size(resol,2),
+            plot(1:255, resol(:,n), [labels{n} 's-'])
+        end
+        xlabel('Cannon values')
+        ylabel('Luminance RESOLUTION (cd/m2)')
+        title('Luminance Resolution per cannon unit')
+        if size(Y,2)>1,
+        subplot(2,2,4), hold on
+        for n=1:3,
+            ratios(:,n)=Y(:,n) ./ sum(Y(:,1:3),2) ;
+            plot(c, ratios(:,n), [labels{n} 'o-'])
+        end
+        xlabel('Cannon values')
+        ylabel('GRAYSCALE normalized color ratio')
+        end
+    end
+else % c is the LumT
+    for m=1:size(Y,2),
+        for n=1:size(Y,1),
+            d=c(:,m)-Y(n,m);
+            [tmp, in]=min(abs(d));
+            output(n,m)=in-1;
+        end
+    end
+    output=uint8(output);
+    if size(Y,2)==1, output=repmat(output,1,3);end
+end
+if ~nargout & fig==1, clear output, end
+    
