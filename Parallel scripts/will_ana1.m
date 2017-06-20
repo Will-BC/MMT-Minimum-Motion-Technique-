@@ -1,0 +1,67 @@
+%will data analysis
+
+clear all
+scriptname='will_ana1';
+key_down_time = 0.3; % to avoid multiple responses for the same strike
+gr1_name=inputdlg('group1 name?', scriptname);
+[fname, fpath]=uigetfile('.mat', 'GROUP 1 DATA' , 'MultiSelect', 'on');
+if ~iscell(fname), fname = {fname}; end
+cd(fpath)
+rr1=[];
+nf1=numel(fname);
+for f=1:nf1,
+    load(fname{f})
+    %resp_labels=['ramp_n', 'ramp_dir', 'Ii', 'vbl', 'I', 'respdir'];
+    ref_vbl=resp(1,4);
+    ct=1;
+    % reduce responses to the first strike
+    for n=2:size(resp,1),
+        if resp(n,4) > ref_vbl + key_down_time,
+            ref_vbl=resp(n,4);
+            ct=[ct; n];
+        end
+    end
+    rr1=[rr1;resp(ct,:)];
+    clear resp
+end
+
+gr2_name=inputdlg('group2 name?', scriptname);
+[fname, fpath]=uigetfile('.mat', 'GROUP 2 DATA' , 'MultiSelect', 'on');
+if ~iscell(fname), fname = {fname}; end
+cd(fpath)
+rr2=[];
+nf2=numel(fname);
+for f=1:nf2,
+    load(fname{f})
+    %resp_labels=['ramp_n', 'ramp_dir', 'Ii', 'vbl', 'I', 'respdir'];
+    ref_vbl=resp(1,4);
+    ct=1;
+    % reduce responses to the first strike
+    for n=2:size(resp,1),
+        if resp(n,4) > ref_vbl + key_down_time,
+            ref_vbl=resp(n,4);
+            ct=[ct; n];
+        end
+    end
+    rr2=[rr2;resp(ct,:)];
+    clear resp
+end
+
+
+r1=rr1(:,5);
+r2=rr2(:,5);
+
+%fill with nans to make same size (for boxplot)
+nn=max(numel(r1), numel(r2));
+rn1=[r1; nan(nn-numel(r1),1)];
+rn2=[r2; nan(nn-numel(r2),1)];
+
+gr1_name={[gr1_name{1} ' (n=' num2str(numel(r1)) ') [' num2str(nf1) ' subject(s)]']};
+gr2_name={[gr2_name{1} ' (n=' num2str(numel(r2)) ') [' num2str(nf2) ' subject(s)]']};
+names=[gr1_name, gr2_name];
+
+p=ranksum(r1,r2);
+
+figure
+boxplot([rn1,rn2],'labels', names)
+title(['Wilcoxon rank sum test, p = ' num2str(p)])
