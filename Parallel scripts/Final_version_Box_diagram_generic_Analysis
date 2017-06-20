@@ -1,4 +1,5 @@
-%will data analysis
+%Box diagram analysis 
+%will data analysis, Mario Fiorani, Junho de 2017.
 
 clear all
 scriptname='will_ana1';
